@@ -12,10 +12,21 @@ struct Memory {
     size_t size;
 };
 
+struct SpeedContext {
+    curl_off_t last_dl;
+    struct timespec last_time;
+};
+
+struct myprogress {
+  curl_off_t lastruntime; /* type depends on version, see above */
+  CURL *curl;
+};
+
 typedef struct page_options{
     char* page_url;
     char* title; 
 } popts;
+
 
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t real_size = size * nmemb;
@@ -35,8 +46,6 @@ size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
 
     return real_size;
 }
-
-char redirect_url[2048] = {0};  // Buffer to store hx-redirect value
 
 size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata) {
     size_t total_size = size * nitems;
@@ -58,6 +67,72 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
     return total_size;
 }
 
+double seconds_since(struct timespec *start, struct timespec *end) {
+    return (end->tv_sec - start->tv_sec) + (end->tv_nsec - start->tv_nsec) / 1e9;
+}
+ 
+static int xferinfo_callback(void *p, curl_off_t dltotal, curl_off_t dlnow,
+                             curl_off_t ultotal, curl_off_t ulnow) {
+    double now = (double)dlnow / (1024 * 1024);     // MB downloaded
+    double total = (double)dltotal / (1024 * 1024); // MB total
+
+    struct SpeedContext *ctx = (struct SpeedContext *)p;
+    struct timespec tnow;
+    clock_gettime(CLOCK_MONOTONIC, &tnow);
+
+    double elapsed = seconds_since(&ctx->last_time, &tnow);
+    if (elapsed >= 1.0) {
+        curl_off_t delta = dlnow - ctx->last_dl;
+        double speed = (delta / elapsed) / (1024.0*1024.0); // KB/s
+
+        printf("\033[2K\r%.02f MB / %.02f MB   ***DL Speed: %.2f MB/s", now, total, speed);
+        fflush(stdout);
+
+        ctx->last_dl = dlnow;
+        ctx->last_time = tnow;
+    }
+    return 0;
+}
+
+
+void gameDownload(char* _link){
+    CURL* curl;
+    CURLcode res;
+    FILE* fp;
+
+    fp = fopen("bin.rar", "wb");
+    struct SpeedContext ctx = {0};
+    clock_gettime(CLOCK_MONOTONIC, &ctx.last_time);
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+
+    curl_easy_setopt(curl, CURLOPT_URL, _link);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    // curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+    // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo_callback);
+
+    res = curl_easy_perform(curl);
+    // if (res == CURLE_OK){
+    //     curl_off_t speed;
+    //     res = curl_easy_getinfo(curl, CURLINFO_SPEED_DOWNLOAD_T, &speed);
+    //     if (res == CURLE_OK){
+    //         printf("Download speed %" CURL_FORMAT_CURL_OFF_T " bytes/sec\n", speed);    
+    //     }
+    // }
+
+    curl_easy_cleanup(curl);
+    curl_global_cleanup();
+
+    fclose(fp);
+    return;
+
+}
 
 char* getGameLink(char* _link){
     CURL *curl; 
@@ -292,6 +367,7 @@ int main(){
     // printf("%s",links);
     char* buzz = extractLinks(links);
     char* n = getGameLink(buzz);
-    printf("\nPaste this link in the browser: ");
-    printf("%s",n);
+    // printf("\nPaste this link in the browser: ");
+    // printf("%s",n);
+    gameDownload(n);
 }
