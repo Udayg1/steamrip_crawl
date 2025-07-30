@@ -18,7 +18,7 @@ struct SpeedContext {
 };
 
 struct myprogress {
-  curl_off_t lastruntime; /* type depends on version, see above */
+  curl_off_t lastruntime; 
   CURL *curl;
 };
 
@@ -27,6 +27,17 @@ typedef struct page_options{
     char* title; 
 } popts;
 
+void checkUnrar(void){
+    if (system("which unrar > /dev/null 2>&1") != 0) {
+    fprintf(stderr, "Unrar not found in PATH. Please install it.\n");
+    exit(1);
+    }
+    system("mkdir -p ./output");  
+}
+
+int extractFiles(void){
+    return system("unrar x ./output/bin.rar ./output/ -idq");
+}
 
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t real_size = size * nmemb;
@@ -100,7 +111,7 @@ void gameDownload(char* _link){
     CURLcode res;
     FILE* fp;
 
-    fp = fopen("bin.rar", "wb");
+    fp = fopen("./output/bin.rar", "wb");
     struct SpeedContext ctx = {0};
     clock_gettime(CLOCK_MONOTONIC, &ctx.last_time);
 
@@ -278,6 +289,7 @@ char* extractLinks(char* links){
 }
 
 int main(){
+    checkUnrar();
     char* query = (char*) malloc(2048);
     printf("Enter the game name you want to search: ");
     fgets(query, 2048, stdin);
@@ -368,6 +380,15 @@ int main(){
     char* buzz = extractLinks(links);
     char* n = getGameLink(buzz);
     // printf("\nPaste this link in the browser: ");
-    // printf("%s",n);
+    printf("\nStarting Download...\n");
     gameDownload(n);
+    printf("\033[2K\r");
+    fflush(stdout);
+    int status = extractFiles();
+    if (!status){
+        printf("\nFiles extracted successfully.");
+    }
+    else{
+        printf("\nError extracting files. Please remove output folder and try again.");
+    }
 }
