@@ -28,15 +28,15 @@ typedef struct page_options{
 } popts;
 
 void checkUnrar(void){
-    if (system("which unrar > /dev/null 2>&1") != 0) {
-    fprintf(stderr, "Unrar not found in PATH. Please install it.\n");
+    if (system("which rar > /dev/null 2>&1") != 0) {
+    fprintf(stderr, "rar not found in PATH. Please install it.\n");
     exit(1);
     }
     system("mkdir -p ./output");  
 }
 
 int extractFiles(void){
-    return system("unrar x ./output/bin.rar ./output/ -idq");
+    return system("rar x ./output/bin.rar ./output/ -idq -mt0");
 }
 
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -383,6 +383,7 @@ int main(){
     printf("\nStarting Download...\n");
     gameDownload(n);
     printf("\033[2K\r");
+    printf("Extracting.....");
     fflush(stdout);
     int status = extractFiles();
     if (!status){
