@@ -132,15 +132,6 @@ void gameDownload(char* _link){
 
 
     res = curl_easy_perform(curl);
-    // if (res == CURLE_OK){
-    //     curl_off_t speed;
-    //     res = curl_easy_getinfo(curl, CURLINFO_SPEED_DOWNLOAD_T, &speed);
-    //     if (res == CURLE_OK){
-    //         printf("Download speed %" CURL_FORMAT_CURL_OFF_T " bytes/sec\n", speed);    
-    //     }
-    // }
-    printf("%ld", length);
-    fflush(stdout);
     curl_easy_cleanup(curl);
     curl_global_cleanup();
 
