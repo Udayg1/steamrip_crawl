@@ -36,7 +36,7 @@ void checkUnrar(void){
 }
 
 int extractFiles(void){
-    return system("rar x ./output/bin.rar ./output/ -idq -mt0");
+    return system("rar x ./output/bin.rar ./output/ -idq");
 }
 
 size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -127,6 +127,9 @@ void gameDownload(char* _link){
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo_callback);
+    curl_off_t length = -1;
+    curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
+
 
     res = curl_easy_perform(curl);
     // if (res == CURLE_OK){
@@ -136,7 +139,8 @@ void gameDownload(char* _link){
     //         printf("Download speed %" CURL_FORMAT_CURL_OFF_T " bytes/sec\n", speed);    
     //     }
     // }
-
+    printf("%ld", length);
+    fflush(stdout);
     curl_easy_cleanup(curl);
     curl_global_cleanup();
 
