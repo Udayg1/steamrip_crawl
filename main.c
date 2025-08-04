@@ -321,6 +321,11 @@ int main(){
     if (cout > 5) {
         cout = 5;
     }
+    if (cout < 1){
+        printf("Query didn't return any results. Try again.\n\n");
+        fflush(stdout);
+        main();
+    }
     while (total < cout){
         cont_index = find(&data[last], "<div class=\"slide lazyload\"") + last;
         if (cont_index >= strlen(data)){
@@ -340,7 +345,7 @@ int main(){
     char* choice = (char*) malloc(8);
     fgets(choice, 8, stdin);
     while (1){
-        if (isdigit(*choice)){break;}
+        if (isdigit(*choice) && 1 <= atoi(choice) && atoi(choice) <= 5){break;}
         else{
             printf("Enter a valid query: ");
             fgets(choice, 8, stdin);
