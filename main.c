@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/types.h>
 #include "dep.h"
 
 struct Memory {
@@ -27,12 +29,66 @@ typedef struct page_options{
     char* title; 
 } popts;
 
+
 void checkUnrar(void){
     if (system("which rar > /dev/null 2>&1") != 0) {
     fprintf(stderr, "rar not found in PATH. Please install it.\n");
     exit(1);
     }
     system("mkdir -p ./output");  
+}
+
+size_t fileSizeCallback(char *contents, size_t size, size_t nmemb, void *userp){
+    size_t total_size = size*nmemb;
+    char* sizeout = (char*)userp;
+    if(strncasecmp(contents, "content-range:", 14) == 0){
+        size_t len = strlen(&contents[12]);
+        char** temp = split(&contents[12], &len, "/");
+        strcpy(sizeout,temp[1]);
+        free(temp[0]);
+        free(temp[1]);
+        free(temp);
+    }
+    return total_size;
+}
+
+char* getFileSize(char* _link){
+    CURL* curl; 
+    CURLcode res;
+    char* result = (char*) malloc(128);
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+
+    curl_easy_setopt(curl, CURLOPT_URL, _link);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_RANGE, "-1");
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, fileSizeCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, result);
+    res = curl_easy_perform(curl);
+    if(res != CURLE_OK){
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        exit(1);
+    }
+    curl_easy_cleanup(curl);
+    return result;
+}
+
+FILE* reserveSpace(char* size){
+    FILE* fp = fopen("./output/bin.rar", "wb+");
+    if (fseek(fp, atoll(size) - 1, SEEK_SET) != 0){
+        printf("Error reserving space.....Exiting!");
+        exit(1);
+    }
+
+    if (fputc('\0', fp) == EOF) {
+        perror("fputc");
+        fclose(fp);
+        exit(1);
+    }
+
+    rewind(fp);
+    return fp;
 }
 
 int extractFiles(void){
@@ -379,7 +435,9 @@ int main(){
     // printf("%s",links);
     char* buzz = extractLinks(links);
     char* n = getGameLink(buzz);
-    // printf("\nPaste this link in the browser: ");
+    char* length = getFileSize(n);
+    FILE* file = reserveSpace(length);
+    printf("\nPaste this link in the browser: ");
     printf("\nStarting Download...\n");
     gameDownload(n);
     printf("\033[2K\r");
