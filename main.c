@@ -2,12 +2,16 @@
 #include <ctype.h>
 #include <curl/curl.h>
 #include <curl/easy.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include "dep.h"
+
+#define MAX_CONNECTIONS 5
 
 struct Memory {
     char *data;
@@ -24,10 +28,22 @@ struct myprogress {
   CURL *curl;
 };
 
+typedef struct {
+    curl_off_t dltotal;
+    curl_off_t dlnow;
+    int done;
+} ProgressInfo;
+
 typedef struct page_options{
     char* page_url;
     char* title; 
 } popts;
+
+typedef struct {
+    int fd;           // File descriptor
+    long offset;      // Offset to write
+    long written;     // How many bytes already written
+} rnghldr;
 
 
 void checkUnrar(void){
@@ -140,59 +156,93 @@ double seconds_since(struct timespec *start, struct timespec *end) {
  
 static int xferinfo_callback(void *p, curl_off_t dltotal, curl_off_t dlnow,
                              curl_off_t ultotal, curl_off_t ulnow) {
-    double now = (double)dlnow / (1024 * 1024);     // MB downloaded
-    double total = (double)dltotal / (1024 * 1024); // MB total
-
-    struct SpeedContext *ctx = (struct SpeedContext *)p;
-    struct timespec tnow;
-    clock_gettime(CLOCK_MONOTONIC, &tnow);
-
-    double elapsed = seconds_since(&ctx->last_time, &tnow);
-    if (elapsed >= 1.0) {
-        curl_off_t delta = dlnow - ctx->last_dl;
-        double speed = (delta / elapsed) / (1024.0*1024.0); // KB/s
-
-        printf("\033[2K\r%.02f MB / %.02f MB   ***DL Speed: %.2f MB/s", now, total, speed);
-        fflush(stdout);
-
-        ctx->last_dl = dlnow;
-        ctx->last_time = tnow;
-    }
+    ProgressInfo *info = (ProgressInfo*) p;
+    info->dltotal = dltotal;
+    info->dlnow = dlnow;
     return 0;
 }
 
-
-void gameDownload(char* _link){
-    CURL* curl;
-    CURLcode res;
-    FILE* fp;
-
-    fp = fopen("./output/bin.rar", "wb");
-    struct SpeedContext ctx = {0};
-    clock_gettime(CLOCK_MONOTONIC, &ctx.last_time);
-
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-
-    curl_easy_setopt(curl, CURLOPT_URL, _link);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    // curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-    // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo_callback);
-    curl_off_t length = -1;
-    curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
+static int write_to_file(void* ptr, size_t size, size_t nmemb, long *userdata){
+ rnghldr *offset = (rnghldr *)userdata;
+    size_t total = size * nmemb;
+    ssize_t written = pwrite(offset->fd, ptr, total, offset->offset + offset->written);
+    if (written < 0) return 0;
+    offset->written += written;
+    return written;}
 
 
-    res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+void gameDownload(char* _link,char* size_str, FILE* fp){
+    CURLM *multi;
+    CURL *handles[MAX_CONNECTIONS];
+    rnghldr offsets[MAX_CONNECTIONS];
+    ProgressInfo progress_data[MAX_CONNECTIONS];
+    long size = atol(size_str);
+    long range = size / MAX_CONNECTIONS;
+    int still_running;
+    int fd = fileno(fp);
+
+    curl_global_init(CURL_GLOBAL_ALL);
+    multi = curl_multi_init();
+
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        handles[i] = curl_easy_init();
+        long range0 = range * i;
+        long range1 = (i == MAX_CONNECTIONS - 1) ? size - 1 : (range * (i + 1)) - 1;
+
+        char range_header[64];
+        sprintf(range_header, "%ld-%ld", range0, range1);
+
+        offsets[i].fd = fd;
+        offsets[i].offset = range0;
+        offsets[i].written = 0;
+
+        curl_easy_setopt(handles[i], CURLOPT_URL, _link);
+        curl_easy_setopt(handles[i], CURLOPT_RANGE, range_header);
+        curl_easy_setopt(handles[i], CURLOPT_WRITEFUNCTION, write_to_file);
+        curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, &offsets[i]);
+        curl_easy_setopt(handles[i], CURLOPT_XFERINFOFUNCTION, xferinfo_callback);
+        curl_easy_setopt(handles[i], CURLOPT_XFERINFODATA, &progress_data[i]);
+        curl_easy_setopt(handles[i], CURLOPT_NOPROGRESS, 0L);
+        curl_multi_add_handle(multi, handles[i]);
+    }
+
+    double last_size = 0;
+
+    curl_multi_perform(multi, &still_running);
+    do {
+        curl_multi_perform(multi, &still_running);
+
+        // Print combined progress every 0.5s
+        static time_t last_print = 0;
+        time_t now = time(NULL);
+        if (now != last_print) {
+            last_print = now;
+
+            curl_off_t total_now = 0, total_total = 0;
+            for (int i = 0; i < MAX_CONNECTIONS; i++) {
+                total_now += progress_data[i].dlnow;
+                total_total += progress_data[i].dltotal;
+            }
+
+            double percent = total_total > 0 ? (double)total_now / total_total * 100.0 : 0.0;
+            printf("\rDownloading... %.2f%% (%.2f / %.2f MB)\t**DL Speed %.2f MB/s",
+                percent,
+                total_now / (1024.0 * 1024),
+                total_total / (1024.0 * 1024), (total_now - last_size)/(1024*1024));
+            fflush(stdout);
+            last_size = total_now;
+        }
+
+        // Optionally wait a bit
+        curl_multi_poll(multi, NULL, 0, 100, NULL);
+    } while (still_running);
+
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        curl_multi_remove_handle(multi, handles[i]);
+        curl_easy_cleanup(handles[i]);
+    }
+    curl_multi_cleanup(multi);
     curl_global_cleanup();
-
-    fclose(fp);
-    return;
 
 }
 
@@ -437,9 +487,8 @@ int main(){
     char* n = getGameLink(buzz);
     char* length = getFileSize(n);
     FILE* file = reserveSpace(length);
-    printf("\nPaste this link in the browser: ");
     printf("\nStarting Download...\n");
-    gameDownload(n);
+    gameDownload(n,length, file);
     printf("\033[2K\r");
     printf("Extracting.....");
     fflush(stdout);
@@ -450,4 +499,5 @@ int main(){
     else{
         printf("\nError extracting files. Please remove output folder and try again.");
     }
+    fclose(file);
 }
