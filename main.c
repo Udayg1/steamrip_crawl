@@ -225,7 +225,7 @@ void gameDownload(char* _link,char* size_str, FILE* fp){
             }
 
             double percent = total_total > 0 ? (double)total_now / total_total * 100.0 : 0.0;
-            printf("\rDownloading... %.2f%% (%.2f / %.2f MB)\t**DL Speed %.2f MB/s",
+            printf("\r%.2f%% (%.2f / %.2f MB)\t**DL Speed %.2f MB/s",
                 percent,
                 total_now / (1024.0 * 1024),
                 total_total / (1024.0 * 1024), (total_now - last_size)/(1024*1024));
