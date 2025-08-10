@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include "dep.h"
 
-#define MAX_CONNECTIONS 5
+#define MAX_CONNECTIONS 10
 
 struct Memory {
     char *data;
