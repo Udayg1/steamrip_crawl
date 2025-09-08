@@ -336,7 +336,7 @@ char* getGameWebPage(char* _id){
 
 void displayGameReq(char* sys_req){
     printf("\nSYSTEM REQUIREMENTS:\n");
-    int cont_index = 0, last = 0;
+    // int cont_index = 0, last = 0;
     size_t len = strlen(sys_req);
     char** new_data = split(sys_req, &len, "</li>");
     size_t length = strlen(new_data[0]);
